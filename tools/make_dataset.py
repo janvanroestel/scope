@@ -13,6 +13,8 @@ import time
 from tqdm import tqdm
 import warnings
 from datetime import date
+from penquins import Kowalski
+
 
 today = date.today()
 warnings.filterwarnings('ignore')
@@ -94,6 +96,48 @@ def get_classifications(ID):
 
 
 
+def get_stats(G,ID,ra,dec):
+    """ G is the gloria session
+    ID,ra,dec are the name and coordinates of an object for which to query the stats
+    """
+
+    DATABASE = "ZTF_source_features_DR5"
+
+    q = {
+        "query_type": "cone_search",
+        "query": {
+            "object_coordinates": {
+                "cone_search_radius": 2,
+                "cone_search_unit": "arcsec",
+                "radec": {
+                    "target": [ra,dec]
+                }
+            },
+            "catalogs": {
+                DATABASE: {
+                    "filter": {},
+                    "projection": {}
+                }
+            }
+        },
+        "kwargs": {
+            "filter_first": False
+        }
+    }
+
+    r = G.query(q)
+    #r = K.query(q)
+    data = r.get('data')
+        
+    stats = pd.DataFrame([l for l in data['ZTF_source_features_DR5']['target']])
+    # add the Fritz ID here so we know the object ID
+    stats['FritzID'] = ID
+
+    return stats
+
+
+    
+
 # download list of objectIDs from groups on Fritz
 
 out = get_all_sources(348)
@@ -121,6 +165,17 @@ for index, row in df.iterrows():
                 print('trying to add a classification "%s"' %e['classification'])
                 continue
             df.loc[index,e['classification']] = e['probability']
-        
+
+# now, collect the statistics for each object
+with open('/home/jan/mysecrets/secrets.json', 'r') as f:
+    secrets = json.load(f)
+G = Kowalski(**secrets['gloria'], verbose=False)
+
+# for each entry in the group, download the statistics
+stats = pd.concat([get_stats(G,row['id'], row['ra'], row['dec']) for index, row in df.iterrows()])
+
+# to combine everything together, merge the classifications with stats
+dataset = pd.merge(df,stats,left_on='id',right_on='FritzID')
+
 
 
